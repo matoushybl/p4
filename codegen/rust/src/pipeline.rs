@@ -291,18 +291,22 @@ impl<'a> PipelineGenerator<'a> {
                 // Run output of ingress block through egress block on each
                 // egress port.
                 //
+                // NOTE: hoisted out of the loop - `for eport in ports`
+                // consumes the Vec, so `ports.len()` inside the loop would be
+                // a borrow after move.
+                let single_egress = ports.len() == 1;
                 let mut result = Vec::new();
                 for eport in ports {
 
                     // PERF: the common case is a single egress port; move
                     // instead of cloning the parsed headers + metadata (a
                     // full headers_t clone allocates every BitVec field).
-                    let mut egm = if ports.len() == 1 {
+                    let mut egm = if single_egress {
                         std::mem::take(&mut egress_metadata)
                     } else {
                         egress_metadata.clone()
                     };
-                    let mut parsed_ = if ports.len() == 1 {
+                    let mut parsed_ = if single_egress {
                         std::mem::take(&mut parsed)
                     } else {
                         parsed.clone()
@@ -437,18 +441,22 @@ impl<'a> PipelineGenerator<'a> {
                 // Run output of ingress block through egress block on each
                 // egress port.
                 //
+                // NOTE: hoisted out of the loop - `for eport in ports`
+                // consumes the Vec, so `ports.len()` inside the loop would be
+                // a borrow after move.
+                let single_egress = ports.len() == 1;
                 let mut result = Vec::new();
                 for eport in ports {
 
                     // PERF: the common case is a single egress port; move
                     // instead of cloning the parsed headers + metadata (a
                     // full headers_t clone allocates every BitVec field).
-                    let mut egm = if ports.len() == 1 {
+                    let mut egm = if single_egress {
                         std::mem::take(&mut egress_metadata)
                     } else {
                         egress_metadata.clone()
                     };
-                    let mut parsed_ = if ports.len() == 1 {
+                    let mut parsed_ = if single_egress {
                         std::mem::take(&mut parsed)
                     } else {
                         parsed.clone()
