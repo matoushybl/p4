@@ -294,8 +294,19 @@ impl<'a> PipelineGenerator<'a> {
                 let mut result = Vec::new();
                 for eport in ports {
 
-                    let mut egm = egress_metadata.clone();
-                    let mut parsed_ = parsed.clone();
+                    // PERF: the common case is a single egress port; move
+                    // instead of cloning the parsed headers + metadata (a
+                    // full headers_t clone allocates every BitVec field).
+                    let mut egm = if ports.len() == 1 {
+                        std::mem::take(&mut egress_metadata)
+                    } else {
+                        egress_metadata.clone()
+                    };
+                    let mut parsed_ = if ports.len() == 1 {
+                        std::mem::take(&mut parsed)
+                    } else {
+                        parsed.clone()
+                    };
 
                     //
                     // Run the egress block
@@ -429,8 +440,19 @@ impl<'a> PipelineGenerator<'a> {
                 let mut result = Vec::new();
                 for eport in ports {
 
-                    let mut egm = egress_metadata.clone();
-                    let mut parsed_ = parsed.clone();
+                    // PERF: the common case is a single egress port; move
+                    // instead of cloning the parsed headers + metadata (a
+                    // full headers_t clone allocates every BitVec field).
+                    let mut egm = if ports.len() == 1 {
+                        std::mem::take(&mut egress_metadata)
+                    } else {
+                        egress_metadata.clone()
+                    };
+                    let mut parsed_ = if ports.len() == 1 {
+                        std::mem::take(&mut parsed)
+                    } else {
+                        parsed.clone()
+                    };
 
                     //
                     // Run the egress block

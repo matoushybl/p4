@@ -129,6 +129,47 @@ impl<const D: usize, A: Clone> Table<D, A> {
         sort_entries(result)
     }
 
+    /// Zero-allocation variant of `match_selector` returning the winning
+    /// entry as a borrow instead of a sorted, cloned vector.
+    pub fn match_selector_ref(
+        &self,
+        keyset: &[BigUint; D],
+    ) -> Option<&TableEntry<D, A>> {
+        let lpm = self
+            .entries
+            .iter()
+            .next()
+            .and_then(|e| e.key.iter().position(|k| matches!(k, Key::Lpm(_))));
+
+        let mut best: Option<(&TableEntry<D, A>, u8, u32)> = None;
+        for entry in &self.entries {
+            if !keyset_matches(keyset, &entry.key) {
+                continue;
+            }
+            let len = match lpm {
+                Some(i) => match &entry.key[i] {
+                    Key::Lpm(p) => p.len,
+                    _ => 0,
+                },
+                None => 0,
+            };
+            let better = match best {
+                None => true,
+                Some((_, blen, bprio)) => {
+                    if lpm.is_some() {
+                        (len, entry.priority) > (blen, bprio)
+                    } else {
+                        entry.priority > bprio
+                    }
+                }
+            };
+            if better {
+                best = Some((entry, len, entry.priority));
+            }
+        }
+        best.map(|(e, _, _)| e)
+    }
+
     pub fn dump(&self) -> String {
         let mut s = String::new();
         for e in &self.entries {
@@ -220,19 +261,20 @@ pub fn key_matches(selector: &BigUint, key: &Key) -> bool {
         Key::Exact(x) => {
             let hit = selector == &x.value;
             if !hit {
-                let dump = format!("{:x} != {:x}", selector, x.value);
-                crate::p4rs_provider::match_miss!(|| &dump);
+                crate::p4rs_provider::match_miss!(|| format!(
+                    "{:x} != {:x}",
+                    selector, x.value
+                ));
             }
             hit
         }
         Key::Range(begin, end) => {
             let hit = selector >= &begin.value && selector <= &end.value;
             if !hit {
-                let dump = format!(
+                crate::p4rs_provider::match_miss!(|| format!(
                     "begin={} end={} sel={}",
                     begin.value, end.value, selector
-                );
-                crate::p4rs_provider::match_miss!(|| &dump);
+                ));
             }
             hit
         }
@@ -256,7 +298,7 @@ pub fn key_matches(selector: &BigUint, key: &Key) -> bool {
                 let selector_v6 = selector.to_u128().unwrap();
                 let hit = selector_v6 & mask == key & mask;
                 if !hit {
-                    let dump = format!(
+                    crate::p4rs_provider::match_miss!(|| format!(
                         "{:x} & {:x} == {:x} & {:x} | {:x} == {:x}",
                         selector_v6,
                         mask,
@@ -264,9 +306,7 @@ pub fn key_matches(selector: &BigUint, key: &Key) -> bool {
                         mask,
                         selector_v6 & mask,
                         key & mask
-                    );
-                    //println!("{}", dump);
-                    crate::p4rs_provider::match_miss!(|| &dump);
+                    ));
                 }
                 hit
             }
@@ -283,7 +323,7 @@ pub fn key_matches(selector: &BigUint, key: &Key) -> bool {
                 let selector_v4: u32 = selector.to_u32().unwrap();
                 let hit = selector_v4 & mask == key & mask;
                 if !hit {
-                    let dump = format!(
+                    crate::p4rs_provider::match_miss!(|| format!(
                         "{:x} & {:x} == {:x} & {:x} | {:x} = {:x}",
                         selector_v4,
                         mask,
@@ -291,8 +331,7 @@ pub fn key_matches(selector: &BigUint, key: &Key) -> bool {
                         mask,
                         selector_v4 & mask,
                         key & mask
-                    );
-                    crate::p4rs_provider::match_miss!(|| &dump);
+                    ));
                 }
                 hit
             }
@@ -354,6 +393,7 @@ impl<const D: usize, A: Clone> std::cmp::Eq for TableEntry<D, A> {}
 mod tests {
 
     use super::*;
+    use std::net::Ipv4Addr;
     use std::net::Ipv6Addr;
     use std::sync::Arc;
 
@@ -515,6 +555,88 @@ mod tests {
         assert!(contains_entry(&matches, "a7"));
         // check priority
         assert_eq!(matches[0].name.as_str(), "a0");
+    }
+
+    #[test]
+    fn match_selector_ref_agrees_with_match_selector() {
+        let table = Table::<3, ()> {
+            entries: HashSet::from([
+                tk(
+                    "a0",
+                    Ternary::Value(BigUintKey {
+                        value: 1u8.into(),
+                        width: 1,
+                    }),
+                    Ternary::DontCare,
+                    Ternary::Value(BigUintKey {
+                        value: 1u8.into(),
+                        width: 1,
+                    }),
+                    10,
+                ),
+                tk(
+                    "a7",
+                    Ternary::DontCare,
+                    Ternary::Value(BigUintKey {
+                        value: 47u16.into(),
+                        width: 2,
+                    }),
+                    Ternary::DontCare,
+                    1,
+                ),
+            ]),
+        };
+
+        for (selector, expected) in [
+            (
+                [BigUint::from(1u8), BigUint::from(47u16), BigUint::from(1u8)],
+                Some("a0"),
+            ),
+            (
+                [BigUint::from(0u8), BigUint::from(47u16), BigUint::from(0u8)],
+                Some("a7"),
+            ),
+            (
+                [BigUint::from(0u8), BigUint::from(48u16), BigUint::from(0u8)],
+                None,
+            ),
+        ] {
+            let matches = table.match_selector(&selector);
+            assert_eq!(
+                table
+                    .match_selector_ref(&selector)
+                    .map(|e| e.name.as_str()),
+                matches.first().map(|e| e.name.as_str()),
+            );
+            assert_eq!(matches.first().map(|e| e.name.as_str()), expected);
+        }
+
+        let mut lpm_table = Table::<1, ()>::new();
+        lpm_table.entries.insert(lpm("d", "10.0.0.0", 8));
+        lpm_table.entries.insert(lpm("dd", "10.1.0.0", 16));
+        lpm_table.entries.insert(lpm("def", "0.0.0.0", 0));
+
+        for (addr, expected) in [
+            ("10.1.2.3", "dd"),
+            ("10.9.9.9", "d"),
+            ("11.0.0.1", "def"),
+        ] {
+            let addr: Ipv4Addr = addr.parse().unwrap();
+            let selector = [BigUint::from(u32::from(addr))];
+            let matches = lpm_table.match_selector(&selector);
+            assert_eq!(
+                lpm_table
+                    .match_selector_ref(&selector)
+                    .map(|e| e.name.as_str()),
+                matches.first().map(|e| e.name.as_str()),
+            );
+            assert_eq!(matches.first().map(|e| e.name.as_str()), Some(expected));
+        }
+
+        let empty_table = Table::<1, ()>::new();
+        let selector = [BigUint::from(1u8)];
+        assert!(empty_table.match_selector(&selector).is_empty());
+        assert!(empty_table.match_selector_ref(&selector).is_none());
     }
 
     fn lpm(name: &str, addr: &str, len: u8) -> TableEntry<1, ()> {

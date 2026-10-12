@@ -575,29 +575,29 @@ impl<'a> StatementGenerator<'a> {
         }
         let default_action =
             format_ident!("{}_action_{}", control.name, table.default_action);
+        let miss_arm = if table.default_action != "NoAction" {
+            quote! {
+                softnpu_provider::control_table_miss!(||#table_name_str);
+                #default_action(#(#action_args),*);
+            }
+        } else {
+            quote! {
+                softnpu_provider::control_table_miss!(||#table_name_str);
+            }
+        };
         tokens.extend(quote! {
-            let matches = #table_name.match_selector(
+            match #table_name.match_selector_ref(
                 &[#(#selector_components),*]
-            );
-            if matches.len() > 0 {
-                softnpu_provider::control_table_hit!(||#table_name_str);
-                (matches[0].action)(#(#action_args),*)
+            ) {
+                Some(__p4rs_match) => {
+                    softnpu_provider::control_table_hit!(||#table_name_str);
+                    (__p4rs_match.action)(#(#action_args),*)
+                }
+                None => {
+                    #miss_arm
+                }
             }
         });
-        if table.default_action != "NoAction" {
-            tokens.extend(quote! {
-                else {
-                    softnpu_provider::control_table_miss!(||#table_name_str);
-                    #default_action(#(#action_args),*);
-                }
-            });
-        } else {
-            tokens.extend(quote! {
-                else {
-                    softnpu_provider::control_table_miss!(||#table_name_str);
-                }
-            });
-        }
     }
 
     fn generate_header_set_validity(
