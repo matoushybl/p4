@@ -237,8 +237,9 @@ impl<'a> PipelineGenerator<'a> {
                     softnpu_provider::parser_dropped!(||());
                     return Vec::new();
                 }
-                let dump = format!("\n{}", parsed.dump());
-                softnpu_provider::parser_accepted!(||(&dump));
+                // PERF: eager parsed.dump() (format! over every header) removed;
+                // it ran on every packet even with the USDT probe inactive.
+                softnpu_provider::parser_accepted!(||(""));
 
                 //
                 // Calculate parsed header size
@@ -278,15 +279,13 @@ impl<'a> PipelineGenerator<'a> {
                     }
                 };
 
-                let dump = parsed.dump();
-
                 if ports.is_empty() {
-                    softnpu_provider::ingress_dropped!(||(&dump));
+                    softnpu_provider::ingress_dropped!(||(""));
                     return Vec::new();
                 }
 
-                let dump = format!("\n{}", parsed.dump());
-                softnpu_provider::ingress_accepted!(||(&dump));
+                // PERF: eager parsed.dump() removed (see parser_accepted above).
+                softnpu_provider::ingress_accepted!(||(""));
 
                 //
                 // Run output of ingress block through egress block on each
@@ -373,8 +372,9 @@ impl<'a> PipelineGenerator<'a> {
                     softnpu_provider::parser_dropped!(||());
                     return Vec::new();
                 }
-                let dump = format!("\n{}", parsed.dump());
-                softnpu_provider::parser_accepted!(||(&dump));
+                // PERF: eager parsed.dump() (format! over every header) removed;
+                // it ran on every packet even with the USDT probe inactive.
+                softnpu_provider::parser_accepted!(||(""));
 
                 //
                 // Calculate parsed header size
@@ -414,15 +414,13 @@ impl<'a> PipelineGenerator<'a> {
                     }
                 };
 
-                let dump = parsed.dump();
-
                 if ports.is_empty() {
-                    softnpu_provider::ingress_dropped!(||(&dump));
+                    softnpu_provider::ingress_dropped!(||(""));
                     return Vec::new();
                 }
 
-                let dump = format!("\n{}", parsed.dump());
-                softnpu_provider::ingress_accepted!(||(&dump));
+                // PERF: eager parsed.dump() removed (see parser_accepted above).
+                softnpu_provider::ingress_accepted!(||(""));
 
                 //
                 // Run output of ingress block through egress block on each

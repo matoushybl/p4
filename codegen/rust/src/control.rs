@@ -226,11 +226,12 @@ impl<'a> ControlGenerator<'a> {
             .map(|x| quote! { #x })
             .collect();
 
+        // PERF: eager per-action `format!`-based debug dump removed. It
+        // allocated a String on every control action invocation even when the
+        // USDT probe was inactive (~186us/packet, capped SoftNPU at ~5k pps).
+        let _ = (&dump_fmt, &dump_args);
         let dump = quote! {
-            // TODO find a way to only allocate the string when probe is active.
-            // Cannot simply return reference to string created within probe.
-            let dump = format!(#dump_fmt, #(#dump_args,)*);
-            softnpu_provider::action!(|| (&dump));
+            // per-action debug dump disabled for performance
         };
 
         for arg in &action.parameters {
