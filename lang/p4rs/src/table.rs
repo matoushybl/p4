@@ -129,6 +129,47 @@ impl<const D: usize, A: Clone> Table<D, A> {
         sort_entries(result)
     }
 
+    // zero allocation variant of match_selector
+    pub fn match_selector_ref(
+        &self,
+        keyset: &[BigUint; D],
+    ) -> Option<&TableEntry<D, A>> {
+        // what is LPM
+        let lpm =
+            self.entries.iter().next().and_then(|e| {
+                e.key.iter().position(|k| matches!(k, Key::Lpm(_)))
+            });
+        let mut best = None;
+        for entry in self.entries.iter() {
+            if !keyset_matches(keyset, &entry.key) {
+                continue;
+            }
+            let len = match lpm {
+                Some(i) => match &entry.key[i] {
+                    Key::Lpm(p) => p.len,
+                    _ => 0,
+                },
+                None => 0,
+            };
+
+            let better = match best {
+                None => true,
+                Some((_, blen, bprio)) => {
+                    if lpm.is_some() {
+                        (len, entry.priority) > (blen, bprio)
+                    } else {
+                        entry.priority > bprio
+                    }
+                }
+            };
+
+            if better {
+                best = Some((entry, len, entry.priority));
+            }
+        }
+        best.map(|(e, _, _)| e)
+    }
+
     pub fn dump(&self) -> String {
         let mut s = String::new();
         for e in &self.entries {
