@@ -312,40 +312,49 @@ impl<'a> PipelineGenerator<'a> {
         };
 
         let egress_loop_headers = quote! {
-            ports.into_iter()
-                .filter_map(|eport| {
-                    let mut igm = #ingress_meta_var.clone();
-                    let mut egm = #egress_meta_var.clone();
-                    let mut parsed_ = parsed.clone();
+        let single_egress = ports.len() == 1;
+        ports.into_iter()
+            .filter_map(|eport| {
+                let mut igm = #ingress_meta_var.clone();
+                let mut egm = if single_egress {
+                    std::mem::take(&mut #egress_meta_var)
+                } else {
+                    #egress_meta_var.clone()
+                };
+                let mut parsed_ = if single_egress {
+                    std::mem::take(&mut parsed)
+                } else {
+                    parsed.clone()
+                };
 
-                    //
-                    // Run the egress block
-                    //
+                //
+                // Run the egress block
+                //
 
-                    egm.port = {
-                        let mut x = bitvec![mut u8, Msb0; 0; 16];
-                        x.store_le(eport);
-                        x
-                    };
+                egm.port = {
+                    let mut x = bitvec![mut u8, Msb0; 0; 16];
+                    x.store_le(eport);
+                    x
+                };
 
-                    (self.egress)(
-                        &mut parsed_,
-                        &mut igm,
-                        &mut egm,
-                        #(#egress_tbl_args),*
-                    );
+                (self.egress)(
+                    &mut parsed_,
+                    &mut igm,
+                    &mut egm,
+                    #(#egress_tbl_args),*
+                );
 
-                    if egm.drop {
-                        return None;
-                    }
+                if egm.drop {
+                    return None;
+                }
 
-                    //
-                    // Create the packet output.
-                    //
+                //
+                // Create the packet output.
+                //
 
-                    Some((parsed_, eport))
-                })
-                .collect()
+                Some((parsed_, eport))
+            })
+            .collect()
         };
 
         let process_packet = quote! {
