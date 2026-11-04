@@ -129,6 +129,47 @@ impl<const D: usize, A: Clone> Table<D, A> {
         sort_entries(result)
     }
 
+    // zero allocation variant of match_selector
+    pub fn match_selector_ref(
+        &self,
+        keyset: &[BigUint; D],
+    ) -> Option<&TableEntry<D, A>> {
+        // what is LPM
+        let lpm =
+            self.entries.iter().next().and_then(|e| {
+                e.key.iter().position(|k| matches!(k, Key::Lpm(_)))
+            });
+        let mut best = None;
+        for entry in self.entries.iter() {
+            if !keyset_matches(keyset, &entry.key) {
+                continue;
+            }
+            let len = match lpm {
+                Some(i) => match &entry.key[i] {
+                    Key::Lpm(p) => p.len,
+                    _ => 0,
+                },
+                None => 0,
+            };
+
+            let better = match best {
+                None => true,
+                Some((_, blen, bprio)) => {
+                    if lpm.is_some() {
+                        (len, entry.priority) > (blen, bprio)
+                    } else {
+                        entry.priority > bprio
+                    }
+                }
+            };
+
+            if better {
+                best = Some((entry, len, entry.priority));
+            }
+        }
+        best.map(|(e, _, _)| e)
+    }
+
     pub fn dump(&self) -> String {
         let mut s = String::new();
         for e in &self.entries {
@@ -220,19 +261,20 @@ pub fn key_matches(selector: &BigUint, key: &Key) -> bool {
         Key::Exact(x) => {
             let hit = selector == &x.value;
             if !hit {
-                let dump = format!("{:x} != {:x}", selector, x.value);
-                crate::p4rs_provider::match_miss!(|| &dump);
+                crate::p4rs_provider::match_miss!(|| format!(
+                    "{:x} != {:x}",
+                    selector, x.value
+                ));
             }
             hit
         }
         Key::Range(begin, end) => {
             let hit = selector >= &begin.value && selector <= &end.value;
             if !hit {
-                let dump = format!(
+                crate::p4rs_provider::match_miss!(|| format!(
                     "begin={} end={} sel={}",
                     begin.value, end.value, selector
-                );
-                crate::p4rs_provider::match_miss!(|| &dump);
+                ));
             }
             hit
         }
@@ -256,7 +298,7 @@ pub fn key_matches(selector: &BigUint, key: &Key) -> bool {
                 let selector_v6 = selector.to_u128().unwrap();
                 let hit = selector_v6 & mask == key & mask;
                 if !hit {
-                    let dump = format!(
+                    crate::p4rs_provider::match_miss!(|| format!(
                         "{:x} & {:x} == {:x} & {:x} | {:x} == {:x}",
                         selector_v6,
                         mask,
@@ -264,9 +306,7 @@ pub fn key_matches(selector: &BigUint, key: &Key) -> bool {
                         mask,
                         selector_v6 & mask,
                         key & mask
-                    );
-                    //println!("{}", dump);
-                    crate::p4rs_provider::match_miss!(|| &dump);
+                    ));
                 }
                 hit
             }
@@ -283,7 +323,7 @@ pub fn key_matches(selector: &BigUint, key: &Key) -> bool {
                 let selector_v4: u32 = selector.to_u32().unwrap();
                 let hit = selector_v4 & mask == key & mask;
                 if !hit {
-                    let dump = format!(
+                    crate::p4rs_provider::match_miss!(|| format!(
                         "{:x} & {:x} == {:x} & {:x} | {:x} = {:x}",
                         selector_v4,
                         mask,
@@ -291,8 +331,7 @@ pub fn key_matches(selector: &BigUint, key: &Key) -> bool {
                         mask,
                         selector_v4 & mask,
                         key & mask
-                    );
-                    crate::p4rs_provider::match_miss!(|| &dump);
+                    ));
                 }
                 hit
             }

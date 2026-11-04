@@ -312,40 +312,49 @@ impl<'a> PipelineGenerator<'a> {
         };
 
         let egress_loop_headers = quote! {
-            ports.into_iter()
-                .filter_map(|eport| {
-                    let mut igm = #ingress_meta_var.clone();
-                    let mut egm = #egress_meta_var.clone();
-                    let mut parsed_ = parsed.clone();
+        let single_egress = ports.len() == 1;
+        ports.into_iter()
+            .filter_map(|eport| {
+                let mut igm = #ingress_meta_var.clone();
+                let mut egm = if single_egress {
+                    std::mem::take(&mut #egress_meta_var)
+                } else {
+                    #egress_meta_var.clone()
+                };
+                let mut parsed_ = if single_egress {
+                    std::mem::take(&mut parsed)
+                } else {
+                    parsed.clone()
+                };
 
-                    //
-                    // Run the egress block
-                    //
+                //
+                // Run the egress block
+                //
 
-                    egm.port = {
-                        let mut x = bitvec![mut u8, Msb0; 0; 16];
-                        x.store_le(eport);
-                        x
-                    };
+                egm.port = {
+                    let mut x = bitvec![mut u8, Msb0; 0; 16];
+                    x.store_le(eport);
+                    x
+                };
 
-                    (self.egress)(
-                        &mut parsed_,
-                        &mut igm,
-                        &mut egm,
-                        #(#egress_tbl_args),*
-                    );
+                (self.egress)(
+                    &mut parsed_,
+                    &mut igm,
+                    &mut egm,
+                    #(#egress_tbl_args),*
+                );
 
-                    if egm.drop {
-                        return None;
-                    }
+                if egm.drop {
+                    return None;
+                }
 
-                    //
-                    // Create the packet output.
-                    //
+                //
+                // Create the packet output.
+                //
 
-                    Some((parsed_, eport))
-                })
-                .collect()
+                Some((parsed_, eport))
+            })
+            .collect()
         };
 
         let process_packet = quote! {
@@ -386,8 +395,7 @@ impl<'a> PipelineGenerator<'a> {
                     softnpu_provider::parser_dropped!(||());
                     return Vec::new();
                 }
-                let dump = format!("\n{}", parsed.dump());
-                softnpu_provider::parser_accepted!(||(&dump));
+                softnpu_provider::parser_accepted!(||(format!("\n{}", parsed.dump())));
 
                 //
                 // Calculate parsed header size
@@ -412,19 +420,25 @@ impl<'a> PipelineGenerator<'a> {
 
                 #egress_ports
 
-                let dump = format!(
-                    "{}\negress:\n{}",
-                    parsed.dump(),
-                    #egress_meta_var.dump(),
-                );
-
                 if ports.is_empty() {
-                    softnpu_provider::ingress_dropped!(||(&dump));
+                    softnpu_provider::ingress_dropped!(|| (
+                        format!(
+                            "{}\negress:\n{}",
+                            parsed.dump(),
+                            #egress_meta_var.dump(),
+                        )
+                    ));
                     return Vec::new();
                 }
 
-                let dump = format!("\n{dump}");
-                softnpu_provider::ingress_accepted!(||(&dump));
+                softnpu_provider::ingress_accepted!(|| (
+                    format!(
+                        "\n{}\negress:\n{}",
+                        parsed.dump(),
+                        #egress_meta_var.dump(),
+                        )
+                    )
+                );
 
                 //
                 // Run output of ingress block through egress block on each
@@ -473,8 +487,7 @@ impl<'a> PipelineGenerator<'a> {
                     softnpu_provider::parser_dropped!(||());
                     return Vec::new();
                 }
-                let dump = format!("\n{}", parsed.dump());
-                softnpu_provider::parser_accepted!(||(&dump));
+                softnpu_provider::parser_accepted!(|| (format!("\n{}", parsed.dump())));
 
                 //
                 // Calculate parsed header size
@@ -499,19 +512,21 @@ impl<'a> PipelineGenerator<'a> {
 
                 #egress_ports
 
-                let dump = format!(
+                if ports.is_empty() {
+                    softnpu_provider::ingress_dropped!(|| (format!(
                     "{}\negress:\n{}",
                     parsed.dump(),
                     #egress_meta_var.dump(),
-                );
-
-                if ports.is_empty() {
-                    softnpu_provider::ingress_dropped!(||(&dump));
+                )));
                     return Vec::new();
                 }
 
-                let dump = format!("\n{dump}");
-                softnpu_provider::ingress_accepted!(||(&dump));
+                softnpu_provider::ingress_accepted!(|| (format!(
+                    "\n{}\negress:\n{}",
+                    parsed.dump(),
+                    #egress_meta_var.dump(),
+                ))
+            );
 
                 //
                 // Run output of ingress block through egress block on each

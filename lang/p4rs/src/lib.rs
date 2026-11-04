@@ -78,7 +78,7 @@ pub mod table;
 
 #[usdt::provider]
 mod p4rs_provider {
-    fn match_miss(_: &str) {}
+    fn match_miss(_: String) {}
 }
 
 #[derive(Debug)]
